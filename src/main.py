@@ -1,5 +1,8 @@
 # These imports are tricky because they use c++, do not move them
 from rdkit import Chem
+
+from src.datasets import drugspacex_dataset
+
 try:
     import graph_tool
 except ModuleNotFoundError:
@@ -34,7 +37,7 @@ from diffusion.extra_features_molecular import ExtraMolecularFeatures
 warnings.filterwarnings("ignore", category=PossibleUserWarning)
 
 
-def get_resume(cfg, model_kwargs):
+def get_resume(cfg: DictConfig, model_kwargs: dict):
     """ Resumes a run. It loads previous config without allowing to update keys (used for testing). """
     saved_cfg = cfg.copy()
     name = cfg.general.name + '_resume'
@@ -50,7 +53,7 @@ def get_resume(cfg, model_kwargs):
     return cfg, model
 
 
-def get_resume_adaptive(cfg, model_kwargs):
+def get_resume_adaptive(cfg: DictConfig, model_kwargs: dict):
     """ Resumes a run. It loads previous config but allows to make some changes (used for resuming training)."""
     saved_cfg = cfg.copy()
     # Fetch path to this file to get base path
@@ -76,7 +79,7 @@ def get_resume_adaptive(cfg, model_kwargs):
     return new_cfg, model
 
 
-def setup_wandb(cfg):
+def setup_wandb(cfg: DictConfig):
     config_dict = omegaconf.OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
     kwargs = {'name': cfg.general.name, 'project': f'graph_ddm_{cfg.dataset.name}', 'config': config_dict,
               'settings': wandb.Settings(_disable_stats=True), 'reinit': True, 'mode': cfg.general.wandb}
@@ -96,9 +99,11 @@ def main(cfg: DictConfig):
         elif dataset_config['name'] == 'comm-20':
             datamodule = Comm20DataModule(cfg)
             sampling_metrics = Comm20SamplingMetrics(datamodule.dataloaders)
-        else:
+        elif dataset_config['name'] == 'planar':
             datamodule = PlanarDataModule(cfg)
             sampling_metrics = PlanarSamplingMetrics(datamodule.dataloaders)
+        else:
+            raise ValueError("Dataset not implemented")
 
         dataset_infos = SpectreDatasetInfos(datamodule, dataset_config)
         train_metrics = TrainAbstractMetricsDiscrete() if cfg.model.type == 'discrete' else TrainAbstractMetrics()
@@ -130,9 +135,14 @@ def main(cfg: DictConfig):
             datamodule.prepare_data()
             train_smiles = None
 
-        elif dataset_config.name == 'moses':
+        elif dataset_config['name'] == 'moses':
             datamodule = moses_dataset.MOSESDataModule(cfg)
             dataset_infos = moses_dataset.MOSESinfos(datamodule, cfg)
+            datamodule.prepare_data()
+            train_smiles = None
+        elif dataset_config['name'] == 'drugspacex':
+            datamodule = drugspacex_dataset.DrugSpaceXDataset(cfg)
+            dataset_infos = drugspacex_dataset.DrugSpaceXinfos(datamodule, cfg)
             datamodule.prepare_data()
             train_smiles = None
         else:
