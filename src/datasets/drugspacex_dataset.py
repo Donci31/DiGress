@@ -93,30 +93,19 @@ class DrugSpaceXDataset(InMemoryDataset):
         if files_exist(self.split_paths):
             return
 
-        dataset = pd.read_csv(self.raw_paths[0], sep='\t')
+        dataset = pd.read_csv(self.raw_paths[0], usecols=['SMILES'], sep='\t')
 
         n_samples = len(dataset)
-        n_train = 100000
+        n_train = int(0.8 * n_samples)
         n_test = int(0.1 * n_samples)
         n_val = n_samples - (n_train + n_test)
 
         # Shuffle dataset with df.sample, then split
         train, val, test = np.split(dataset.sample(frac=1, random_state=42), [n_train, n_val + n_train])
 
-        train_row = train['SMILES'].values.tolist()[1:]
-
-        with open(os.path.join(self.raw_dir, 'train.smiles'), 'w') as output_file:
-            output_file.write('\n'.join(train_row))
-
-        val_row = val['SMILES'].values.tolist()[1:]
-
-        with open(os.path.join(self.raw_dir, 'val.smiles'), 'w') as output_file:
-            output_file.write('\n'.join(val_row))
-
-        test_row = test['SMILES'].values.tolist()[1:]
-
-        with open(os.path.join(self.raw_dir, 'test.smiles'), 'w') as output_file:
-            output_file.write('\n'.join(test_row))
+        np.savetxt(os.path.join(self.raw_dir, 'train.smiles'), train.to_numpy(), fmt='%s')
+        np.savetxt(os.path.join(self.raw_dir, 'val.smiles'), val.to_numpy(), fmt='%s')
+        np.savetxt(os.path.join(self.raw_dir, 'test.smiles'), test.to_numpy(), fmt='%s')
 
 
     def process(self):
@@ -277,6 +266,3 @@ def get_train_smiles(cfg, datamodule, dataset_infos, evaluate_dataset=False):
         print(metrics[0])
 
     return train_smiles
-
-if __name__ == "__main__":
-    ds = [DrugSpaceXDataset(s, os.path.join(os.path.abspath(__file__), "../../../data/drugspacex")) for s in ["train", "val", "test"]]
