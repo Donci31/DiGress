@@ -137,7 +137,7 @@ def main(cfg: DictConfig):
             train_smiles = None
         elif dataset_config['name'] == 'drugspacex':
             datamodule = drugspacex_dataset.DrugSpaceXModule(cfg)
-            dataset_infos = guacamol_dataset.Guacamolinfos(datamodule, cfg) # TODO
+            dataset_infos = drugspacex_dataset.DrugSpaceXInfos(datamodule, cfg) # TODO
             datamodule.prepare_data()
             train_smiles = None
         else:
