@@ -3,11 +3,6 @@ from rdkit import Chem
 
 from src.datasets import drugspacex_dataset
 
-try:
-    import graph_tool
-except ModuleNotFoundError:
-    pass
-
 import os
 import pathlib
 import warnings
@@ -122,7 +117,7 @@ def main(cfg: DictConfig):
                         'sampling_metrics': sampling_metrics, 'visualization_tools': visualization_tools,
                         'extra_features': extra_features, 'domain_features': domain_features}
 
-    elif dataset_config["name"] in ['qm9', 'guacamol', 'moses']:
+    elif dataset_config["name"] in ['qm9', 'guacamol', 'moses', 'drugspacex']:
         if dataset_config["name"] == 'qm9':
             datamodule = qm9_dataset.QM9DataModule(cfg)
             dataset_infos = qm9_dataset.QM9infos(datamodule=datamodule, cfg=cfg)
@@ -141,8 +136,8 @@ def main(cfg: DictConfig):
             datamodule.prepare_data()
             train_smiles = None
         elif dataset_config['name'] == 'drugspacex':
-            datamodule = drugspacex_dataset.DrugSpaceXDataset(cfg)
-            dataset_infos = drugspacex_dataset.DrugSpaceXinfos(datamodule, cfg)
+            datamodule = drugspacex_dataset.DrugSpaceXModule(cfg)
+            dataset_infos = guacamol_dataset.Guacamolinfos(datamodule, cfg) # TODO
             datamodule.prepare_data()
             train_smiles = None
         else:
