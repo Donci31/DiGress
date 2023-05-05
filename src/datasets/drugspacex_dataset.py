@@ -59,7 +59,7 @@ class DrugSpaceXDataset(InMemoryDataset):
 
     @property
     def split_file_name(self):
-        return ['train.smiles', 'train.smiles', 'train.smiles']
+        return ['train.smiles', 'test.smiles', 'val.smiles']
 
 
     @property
@@ -95,6 +95,9 @@ class DrugSpaceXDataset(InMemoryDataset):
 
         dataset = pd.read_csv(self.raw_paths[0], usecols=['SMILES'], sep='\t')
 
+        dataset = dataset.loc[dataset['SMILES'].str.len() < 100]
+
+        dataset = dataset.sample(1000)
         n_samples = len(dataset)
         n_train = int(0.8 * n_samples)
         n_test = int(0.1 * n_samples)
@@ -103,9 +106,9 @@ class DrugSpaceXDataset(InMemoryDataset):
         # Shuffle dataset with df.sample, then split
         train, val, test = np.split(dataset.sample(frac=1, random_state=42), [n_train, n_val + n_train])
 
-        np.savetxt(os.path.join(self.raw_dir, 'train.smiles'), train.to_numpy(), fmt='%s')
-        np.savetxt(os.path.join(self.raw_dir, 'val.smiles'), val.to_numpy(), fmt='%s')
-        np.savetxt(os.path.join(self.raw_dir, 'test.smiles'), test.to_numpy(), fmt='%s')
+        np.savetxt(os.path.join(self.raw_dir, self.split_file_name[0]), train.to_numpy(), fmt='%s')
+        np.savetxt(os.path.join(self.raw_dir, self.split_file_name[1]), val.to_numpy(), fmt='%s')
+        np.savetxt(os.path.join(self.raw_dir, self.split_file_name[2]), test.to_numpy(), fmt='%s')
 
 
     def process(self):
@@ -124,8 +127,9 @@ class DrugSpaceXDataset(InMemoryDataset):
             type_idx = []
             for atom in mol.GetAtoms():
                 if atom.GetSymbol() not in types:
-                    continue
-                type_idx.append(types[atom.GetSymbol()])
+                    type_idx.append(types['C'])
+                else:
+                    type_idx.append(types[atom.GetSymbol()])
 
             row, col, edge_type = [], [], []
             for bond in mol.GetBonds():
@@ -220,7 +224,7 @@ class DrugSpaceXInfos(AbstractDatasetInfos):
         self.complete_infos(n_nodes=self.n_nodes, node_types=self.node_types)
 
         if recompute_statistics:
-            self.n_nodes = datamodule.node_counts()
+            self.n_nodes = datamodule.node_counts(max_nodes_possible=1000)
             print("Distribution of number of nodes", self.n_nodes)
             np.savetxt('n_counts.txt', self.n_nodes.numpy())
             self.node_types = datamodule.node_types()                                     # There are no node types
@@ -231,7 +235,7 @@ class DrugSpaceXInfos(AbstractDatasetInfos):
             print("Distribution of edge types", self.edge_types)
             np.savetxt('edge_types.txt', self.edge_types.numpy())
 
-            valencies = datamodule.valency_count()
+            valencies = datamodule.valency_count(max_n_nodes=1000)
             print("Distribution of the valencies", valencies)
             np.savetxt('valencies.txt', valencies.numpy())
             self.valency_distribution = valencies
