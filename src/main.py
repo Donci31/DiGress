@@ -1,7 +1,7 @@
 # These imports are tricky because they use c++, do not move them
 from rdkit import Chem
 
-from src.datasets import drugspacex_dataset
+import graph_tool
 
 import os
 import pathlib
@@ -17,7 +17,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.utilities.warnings import PossibleUserWarning
 
 from src import utils
-from datasets import guacamol_dataset, qm9_dataset, moses_dataset
+from datasets import guacamol_dataset, qm9_dataset, moses_dataset, drugspacex_dataset, zinc_dataset
 from datasets.spectre_dataset import SBMDataModule, Comm20DataModule, PlanarDataModule, SpectreDatasetInfos
 from metrics.abstract_metrics import TrainAbstractMetricsDiscrete, TrainAbstractMetrics
 from analysis.spectre_utils import PlanarSamplingMetrics, SBMSamplingMetrics, Comm20SamplingMetrics
@@ -117,7 +117,7 @@ def main(cfg: DictConfig):
                         'sampling_metrics': sampling_metrics, 'visualization_tools': visualization_tools,
                         'extra_features': extra_features, 'domain_features': domain_features}
 
-    elif dataset_config["name"] in ['qm9', 'guacamol', 'moses', 'drugspacex']:
+    elif dataset_config["name"] in ['qm9', 'guacamol', 'moses', 'drugspacex', 'zinc']:
         if dataset_config["name"] == 'qm9':
             datamodule = qm9_dataset.QM9DataModule(cfg)
             dataset_infos = qm9_dataset.QM9infos(datamodule=datamodule, cfg=cfg)
@@ -137,7 +137,12 @@ def main(cfg: DictConfig):
             train_smiles = None
         elif dataset_config['name'] == 'drugspacex':
             datamodule = drugspacex_dataset.DrugSpaceXModule(cfg)
-            dataset_infos = drugspacex_dataset.DrugSpaceXInfos(datamodule, cfg) # TODO
+            dataset_infos = drugspacex_dataset.DrugSpaceXInfos(datamodule, cfg)
+            datamodule.prepare_data()
+            train_smiles = None
+        elif dataset_config['name'] == 'zinc':
+            datamodule = zinc_dataset.ZincDataModule(cfg)
+            dataset_infos = zinc_dataset.Zincinfos(datamodule, cfg)
             datamodule.prepare_data()
             train_smiles = None
         else:

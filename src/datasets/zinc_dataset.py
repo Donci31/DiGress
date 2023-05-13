@@ -1,21 +1,20 @@
-import pandas as pd
 from rdkit import Chem, RDLogger
 from rdkit.Chem.rdchem import BondType as BT
-from rdkit.Chem import PandasTools
 
 import os
 import os.path as osp
 import pathlib
+import hashlib
 from typing import Any, Sequence
 
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 import numpy as np
-from torch_geometric.data import Data, InMemoryDataset, download_url, extract_tar
+from torch_geometric.data import Data, InMemoryDataset, download_url, extract_zip
 
 from src import utils
-from src.analysis.rdkit_functions import compute_molecular_metrics
+from src.analysis.rdkit_functions import mol2smiles, build_molecule_with_partial_charges, compute_molecular_metrics
 from src.datasets.abstract_dataset import AbstractDatasetInfos, MolecularDataModule
 
 
@@ -32,13 +31,21 @@ def to_list(value: Any) -> Sequence:
         return [value]
 
 
-atom_decoder = ['C', 'N', 'O', 'F', 'B', 'Br', 'Cl', 'I', 'P', 'S', 'Se', 'Si']
+def compare_hash(output_file: str, correct_hash: str) -> bool:
+    """
+    Computes the md5 hash of a SMILES file and check it against a given one
+    Returns false if hashes are different
+    """
+    output_hash = hashlib.md5(open(output_file, 'rb').read()).hexdigest()
+    if output_hash != correct_hash:
+        print(f'{output_file} file has different hash, {output_hash}, than expected, {correct_hash}!')
+        return False
 
-atom_encoder = {atom: i for i, atom in enumerate(atom_decoder)}
+    return True
 
 
-class DrugSpaceXDataset(InMemoryDataset):
-    raw_url = 'https://drugspacex.simm.ac.cn/static/gz/DrugSpaceX-Drug-set-smiles.smi.tar.gz'
+class ZincDataset(InMemoryDataset):
+    raw_url = 'https://docs.google.com/uc?export=download&id=17kGpZOVwIGb_H57f4SvkPagdwqA8tADD'
 
     def __init__(self, stage, root, transform=None, pre_transform=None, pre_filter=None):
         self.stage = stage
@@ -51,16 +58,13 @@ class DrugSpaceXDataset(InMemoryDataset):
         super().__init__(root, transform, pre_transform, pre_filter)
         self.data, self.slices = torch.load(self.processed_paths[self.file_idx])
 
-
     @property
     def raw_file_names(self):
-        return ['DrugSpaceX-Drug-set-smiles.smi']
-
+        return ['zinc_train.txt', 'zinc_dev.txt', 'zinc_test.txt']
 
     @property
     def split_file_name(self):
-        return ['train.smiles', 'test.smiles', 'val.smiles']
-
+        return ['zinc_train.txt', 'zinc_dev.txt', 'zinc_test.txt']
 
     @property
     def split_paths(self):
@@ -69,11 +73,9 @@ class DrugSpaceXDataset(InMemoryDataset):
         files = to_list(self.split_file_name)
         return [osp.join(self.raw_dir, f) for f in files]
 
-
     @property
     def processed_file_names(self):
-        return ['proc_tr.pt', 'proc_val.pt', 'proc_test.pt']
-
+        return ['proc_tr_10000.pt', 'proc_val_10000.pt', 'proc_test_10000.pt']
 
     def download(self):
         """
@@ -82,42 +84,20 @@ class DrugSpaceXDataset(InMemoryDataset):
         try:
             import rdkit  # noqa
             file_path = download_url(self.raw_url, self.raw_dir)
-            extract_tar(file_path, self.raw_dir)
+            extract_zip(file_path, self.raw_dir)
             os.unlink(file_path)
-
         except ImportError:
-            path = download_url(self.processed_url, self.raw_dir)
-            extract_tar(path, self.raw_dir)
-            os.unlink(path)
-
-        if files_exist(self.split_paths):
-            return
-
-        dataset = pd.read_csv(self.raw_paths[0], usecols=['SMILES'], sep='\t')
-
-        dataset = dataset.loc[dataset['SMILES'].str.len() < 100]
-
-        dataset = dataset.sample(1000)
-        n_samples = len(dataset)
-        n_train = int(0.8 * n_samples)
-        n_test = int(0.1 * n_samples)
-        n_val = n_samples - (n_train + n_test)
-
-        # Shuffle dataset with df.sample, then split
-        train, val, test = np.split(dataset.sample(frac=1, random_state=42), [n_train, n_val + n_train])
-
-        np.savetxt(os.path.join(self.raw_dir, self.split_file_name[0]), train.to_numpy(), fmt='%s')
-        np.savetxt(os.path.join(self.raw_dir, self.split_file_name[1]), val.to_numpy(), fmt='%s')
-        np.savetxt(os.path.join(self.raw_dir, self.split_file_name[2]), test.to_numpy(), fmt='%s')
-
+            file_path = download_url(self.processed_url, self.raw_dir)
+            extract_zip(file_path, self.raw_dir)
+            os.unlink(file_path)
 
     def process(self):
 
         RDLogger.DisableLog('rdApp.*')
-        types = atom_encoder
+        types = {'C': 0, 'N': 1, 'O': 2, 'F': 3, 'B': 4, 'Br': 5, 'Cl': 6, 'I': 7, 'P': 8, 'S': 9, 'Se': 10, 'Si': 11}
         bonds = {BT.SINGLE: 0, BT.DOUBLE: 1, BT.TRIPLE: 2, BT.AROMATIC: 3}
 
-        smile_list = open(self.split_paths[self.file_idx]).readlines()
+        smile_list = open(self.split_paths[self.file_idx]).readlines()[1:10000]
 
         data_list = []
         for i, smile in enumerate(tqdm(smile_list)):
@@ -163,7 +143,7 @@ class DrugSpaceXDataset(InMemoryDataset):
         torch.save(self.collate(data_list), self.processed_paths[self.file_idx])
 
 
-class DrugSpaceXModule(MolecularDataModule):
+class ZincDataModule(MolecularDataModule):
     def __init__(self, cfg):
         super().__init__(cfg)
         self.remove_h = True
@@ -174,17 +154,19 @@ class DrugSpaceXModule(MolecularDataModule):
     def prepare_data(self) -> None:
         base_path = pathlib.Path(os.path.realpath(__file__)).parents[2]
         root_path = os.path.join(base_path, self.datadir)
-        datasets = {'train': DrugSpaceXDataset(stage='train', root=root_path),
-                    'val': DrugSpaceXDataset(stage='val', root=root_path),
-                    'test': DrugSpaceXDataset(stage='test', root=root_path)}
+        datasets = {'train': ZincDataset(stage='train', root=root_path),
+                    'val': ZincDataset(stage='val', root=root_path),
+                    'test': ZincDataset(stage='test', root=root_path)}
         super().prepare_data(datasets)
 
 
-class DrugSpaceXInfos(AbstractDatasetInfos):
+class Zincinfos(AbstractDatasetInfos):
+    atom_encoder = {'C': 0, 'N': 1, 'O': 2, 'F': 3, 'B': 4, 'Br': 5,
+                    'Cl': 6, 'I': 7, 'P': 8, 'S': 9, 'Se': 10, 'Si': 11}
+    atom_decoder = ['C', 'N', 'O', 'F', 'B', 'Br', 'Cl', 'I', 'P', 'S', 'Se', 'Si']
+
     def __init__(self, datamodule, cfg, recompute_statistics=False):
-        self.name = 'DrugSpaceX'
-        self. atom_encoder = atom_encoder
-        self. atom_decoder = atom_decoder
+        self.name = 'Guacamol'
         self.input_dims = None
         self.output_dims = None
         self.remove_h = True
@@ -196,38 +178,28 @@ class DrugSpaceXInfos(AbstractDatasetInfos):
         self.atom_weights = {1: 12, 2: 14, 3: 16, 4: 19, 5: 10.81, 6: 79.9,
                              7: 35.45, 8: 126.9, 9: 30.97, 10: 30.07, 11: 78.97, 12: 28.09}
 
-        self.node_types = torch.tensor([7.4090e-01, 1.0693e-01, 1.1220e-01, 1.4213e-02, 6.0579e-05, 1.7171e-03,
-        8.4113e-03, 2.2902e-04, 5.6947e-04, 1.4673e-02, 4.1532e-05, 5.3416e-05])
+        self.node_types = torch.tensor([0.7163, 0.1169, 0.1195, 0.0135, 0.0000, 0.0023, 0.0085, 0.0000, 0.0000,
+                                        0.0230, 0.0000, 0.0000])
 
-        self.edge_types = torch.tensor([9.2526e-01, 3.6241e-02, 4.8489e-03, 1.6513e-04, 3.3489e-02])
+        self.edge_types = torch.tensor([8.9273e-01, 4.1264e-02, 7.3240e-03, 3.4301e-04, 5.8342e-02])
 
-        self.n_nodes = torch.tensor([0, 0, 3.5760e-06, 2.7893e-05, 6.9374e-05, 1.6020e-04,
-                                     2.8036e-04, 4.3484e-04, 7.3022e-04, 1.1722e-03, 1.7830e-03, 2.8129e-03,
-                                     4.0981e-03, 5.5421e-03, 7.9645e-03, 1.0824e-02, 1.4459e-02, 1.8818e-02,
-                                     2.3961e-02, 2.9558e-02, 3.6324e-02, 4.1931e-02, 4.8105e-02, 5.2316e-02,
-                                     5.6601e-02, 5.7483e-02, 5.6685e-02, 5.2317e-02, 5.2107e-02, 4.9651e-02,
-                                     4.8100e-02, 4.4363e-02, 4.0704e-02, 3.5719e-02, 3.1685e-02, 2.6821e-02,
-                                     2.2542e-02, 1.8591e-02, 1.6114e-02, 1.3399e-02, 1.1543e-02, 9.6116e-03,
-                                     8.4744e-03, 6.9532e-03, 6.2001e-03, 4.9921e-03, 4.4378e-03, 3.5803e-03,
-                                     3.3078e-03, 2.7085e-03, 2.6784e-03, 2.2050e-03, 2.0533e-03, 1.5598e-03,
-                                     1.5177e-03, 9.8626e-04, 8.6396e-04, 5.6429e-04, 5.0422e-04, 2.9323e-04,
-                                     2.2243e-04, 9.8697e-05, 9.9413e-05, 6.0077e-05, 6.9374e-05, 3.0754e-05,
-                                     3.5045e-05, 1.6450e-05, 2.1456e-05, 1.2874e-05, 1.2158e-05, 5.7216e-06,
-                                     7.1520e-06, 2.8608e-06, 2.8608e-06, 7.1520e-07, 2.8608e-06, 1.4304e-06,
-                                     7.1520e-07, 0.0000e+00, 0.0000e+00, 0.0000e+00, 7.1520e-07, 0.0000e+00,
-                                     1.4304e-06, 7.1520e-07, 7.1520e-07, 0.0000e+00, 1.4304e-06])
+        self.n_nodes = torch.tensor([0.0000e+00, 0.0000e+00, 0.0000e+00, 0.0000e+00, 0.0000e+00, 0.0000e+00,
+                                     0.0000e+00, 0.0000e+00, 0.0000e+00, 1.3335e-04, 2.6669e-04, 2.0002e-04,
+                                     3.0003e-04, 9.0009e-04, 3.6004e-03, 5.1005e-03, 1.3535e-02, 3.5670e-02,
+                                     7.6974e-02, 1.2925e-01, 1.3858e-01, 1.4435e-01, 1.4421e-01, 1.3411e-01,
+                                     1.1018e-01, 5.1605e-02, 1.1001e-02, 3.3337e-05])
 
         self.complete_infos(n_nodes=self.n_nodes, node_types=self.node_types)
         self.valency_distribution = torch.zeros(self.max_n_nodes * 3 - 2)
-        self.valency_distribution[0: 7] = torch.tensor([0.0000, 0.1105, 0.2645, 0.3599, 0.2552, 0.0046, 0.0053])
+        self.valency_distribution[0:7] = torch.tensor([0.0000, 0.1019, 0.2366, 0.3705, 0.2756, 0.0093, 0.0062])
 
         self.complete_infos(n_nodes=self.n_nodes, node_types=self.node_types)
 
         if recompute_statistics:
-            self.n_nodes = datamodule.node_counts(max_nodes_possible=1000)
+            self.n_nodes = datamodule.node_counts()
             print("Distribution of number of nodes", self.n_nodes)
             np.savetxt('n_counts.txt', self.n_nodes.numpy())
-            self.node_types = datamodule.node_types()                                     # There are no node types
+            self.node_types = datamodule.node_types()  # There are no node types
             print("Distribution of node types", self.node_types)
             np.savetxt('atom_types.txt', self.node_types.numpy())
 
@@ -235,7 +207,7 @@ class DrugSpaceXInfos(AbstractDatasetInfos):
             print("Distribution of edge types", self.edge_types)
             np.savetxt('edge_types.txt', self.edge_types.numpy())
 
-            valencies = datamodule.valency_count(max_n_nodes=1000)
+            valencies = datamodule.valency_count(300)
             print("Distribution of the valencies", valencies)
             np.savetxt('valencies.txt', valencies.numpy())
             self.valency_distribution = valencies
