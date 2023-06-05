@@ -74,17 +74,11 @@ class GuacamolDataset(InMemoryDataset):
 
     @property
     def raw_file_names(self):
-        if self.filtered:
-            return ['new_train.smiles', 'new_val.smiles', 'new_test.smiles']
-        else:
-            return ['guacamol_v1_train.smiles', 'guacamol_v1_valid.smiles', 'guacamol_v1_test.smiles']
+        return ['guacamol_v1_train.smiles', 'guacamol_v1_valid.smiles', 'guacamol_v1_test.smiles']
 
     @property
     def split_file_name(self):
-        if self.filtered:
-            return ['new_train.smiles', 'new_val.smiles', 'new_test.smiles']
-        else:
-            return ['guacamol_v1_train.smiles', 'guacamol_v1_valid.smiles', 'guacamol_v1_test.smiles']
+        return ['guacamol_v1_train.smiles', 'guacamol_v1_valid.smiles', 'guacamol_v1_test.smiles']
 
     @property
     def split_paths(self):
@@ -95,10 +89,7 @@ class GuacamolDataset(InMemoryDataset):
 
     @property
     def processed_file_names(self):
-            if self.filtered:
-                return ['new_proc_tr.pt', 'new_proc_val.pt', 'new_proc_test.pt']
-            else:
-                return ['old_proc_tr.pt', 'old_proc_val.pt', 'old_proc_test.pt']
+        return ['old_proc_tr.pt', 'old_proc_val.pt', 'old_proc_test.pt']
 
     def download(self):
         """
@@ -143,7 +134,7 @@ class GuacamolDataset(InMemoryDataset):
         types = {'C': 0, 'N': 1, 'O': 2, 'F': 3, 'B': 4, 'Br': 5, 'Cl': 6, 'I': 7, 'P': 8, 'S': 9, 'Se': 10, 'Si': 11}
         bonds = {BT.SINGLE: 0, BT.DOUBLE: 1, BT.TRIPLE: 2, BT.AROMATIC: 3}
 
-        smile_list = open(self.split_paths[self.file_idx]).readlines()
+        smile_list = open(self.split_paths[self.file_idx]).readlines()[:10_000]
 
         data_list = []
         smiles_kept = []

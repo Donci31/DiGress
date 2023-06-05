@@ -74,11 +74,11 @@ class MOSESDataset(InMemoryDataset):
         bonds = {BT.SINGLE: 0, BT.DOUBLE: 1, BT.TRIPLE: 2, BT.AROMATIC: 3}
 
         if self.stage == 'train':
-            smile_list = moses.get_dataset('train')            # thank you moses authors for such an easy API
+            smile_list = moses.get_dataset('train')[:10_000]            # thank you moses authors for such an easy API
         elif self.stage == 'val':
-            smile_list = moses.get_dataset('test')
+            smile_list = moses.get_dataset('test')[:2_000]
         else:
-            smile_list = moses.get_dataset('test_scaffolds')
+            smile_list = moses.get_dataset('test_scaffolds')[:2_000]
 
 
         data_list = []
