@@ -32,7 +32,7 @@ def to_list(value: Any) -> Sequence:
         return [value]
 
 
-atom_decoder = ['C', 'N', 'O', 'F', 'B', 'Br', 'Cl', 'I', 'P', 'S', 'Se', 'Si']
+atom_decoder = ['H', 'C', 'N', 'O', 'F', 'B', 'Br', 'Cl', 'I', 'P', 'S', 'Se', 'Si']
 
 atom_encoder = {atom: i for i, atom in enumerate(atom_decoder)}
 
@@ -51,16 +51,13 @@ class DrugSpaceXDataset(InMemoryDataset):
         super().__init__(root, transform, pre_transform, pre_filter)
         self.data, self.slices = torch.load(self.processed_paths[self.file_idx])
 
-
     @property
     def raw_file_names(self):
         return ['DrugSpaceX-Drug-set-smiles.smi']
 
-
     @property
     def split_file_name(self):
         return ['train.smiles', 'test.smiles', 'val.smiles']
-
 
     @property
     def split_paths(self):
@@ -69,11 +66,9 @@ class DrugSpaceXDataset(InMemoryDataset):
         files = to_list(self.split_file_name)
         return [osp.join(self.raw_dir, f) for f in files]
 
-
     @property
     def processed_file_names(self):
         return ['proc_tr.pt', 'proc_val.pt', 'proc_test.pt']
-
 
     def download(self):
         """
@@ -95,9 +90,13 @@ class DrugSpaceXDataset(InMemoryDataset):
 
         dataset = pd.read_csv(self.raw_paths[0], usecols=['SMILES'], sep='\t')
 
-        dataset = dataset.loc[dataset['SMILES'].str.len() < 100]
+        dataset = dataset.loc[dataset['SMILES'].str.len() < 130]
+        dataset = dataset[
+            ~dataset['SMILES'].str.contains(
+                'K|Al|As|Sb|Bi|Sr|Co|V|Mg|Ca|Cr|Lu|Gd|Ga|Ra|Fe|Cu|Zn|Sm|Na|Mn|Au|Ag|In|Hg|Sn|Tc'
+            )
+        ]
 
-        dataset = dataset.sample(1000)
         n_samples = len(dataset)
         n_train = int(0.8 * n_samples)
         n_test = int(0.1 * n_samples)
@@ -109,7 +108,6 @@ class DrugSpaceXDataset(InMemoryDataset):
         np.savetxt(os.path.join(self.raw_dir, self.split_file_name[0]), train.to_numpy(), fmt='%s')
         np.savetxt(os.path.join(self.raw_dir, self.split_file_name[1]), val.to_numpy(), fmt='%s')
         np.savetxt(os.path.join(self.raw_dir, self.split_file_name[2]), test.to_numpy(), fmt='%s')
-
 
     def process(self):
 
@@ -126,10 +124,7 @@ class DrugSpaceXDataset(InMemoryDataset):
 
             type_idx = []
             for atom in mol.GetAtoms():
-                if atom.GetSymbol() not in types:
-                    type_idx.append(types['C'])
-                else:
-                    type_idx.append(types[atom.GetSymbol()])
+                type_idx.append(types[atom.GetSymbol()])
 
             row, col, edge_type = [], [], []
             for bond in mol.GetBonds():
@@ -183,51 +178,48 @@ class DrugSpaceXModule(MolecularDataModule):
 class DrugSpaceXInfos(AbstractDatasetInfos):
     def __init__(self, datamodule, cfg, recompute_statistics=False):
         self.name = 'DrugSpaceX'
-        self. atom_encoder = atom_encoder
-        self. atom_decoder = atom_decoder
+        self.atom_encoder = atom_encoder
+        self.atom_decoder = atom_decoder
         self.input_dims = None
         self.output_dims = None
         self.remove_h = True
-        self.num_atom_types = 12
+        self.num_atom_types = 13
         self.max_weight = 1000
 
-        self.valencies = [4, 3, 2, 1, 3, 1, 1, 1, 3, 2, 2, 4]
+        self.valencies = [1, 4, 3, 2, 1, 3, 1, 1, 1, 3, 2, 2, 4]
 
-        self.atom_weights = {1: 12, 2: 14, 3: 16, 4: 19, 5: 10.81, 6: 79.9,
-                             7: 35.45, 8: 126.9, 9: 30.97, 10: 30.07, 11: 78.97, 12: 28.09}
+        self.atom_weights = {1: 1, 2: 12, 3: 14, 4: 16, 5: 19, 6: 10.81, 7: 79.9,
+                             8: 35.45, 9: 126.9, 10: 30.97, 11: 30.07, 12: 78.97, 13: 28.09}
 
-        self.node_types = torch.tensor([7.4090e-01, 1.0693e-01, 1.1220e-01, 1.4213e-02, 6.0579e-05, 1.7171e-03,
-        8.4113e-03, 2.2902e-04, 5.6947e-04, 1.4673e-02, 4.1532e-05, 5.3416e-05])
+        self.node_types = torch.tensor([1.5911e-04, 7.3261e-01, 9.0323e-02, 1.3962e-01, 1.0899e-02, 1.3259e-04,
+                                        8.2208e-04, 8.5126e-03, 2.5458e-03, 1.5646e-03, 1.2570e-02, 2.6519e-05,
+                                        2.1215e-04])
 
-        self.edge_types = torch.tensor([9.2526e-01, 3.6241e-02, 4.8489e-03, 1.6513e-04, 3.3489e-02])
+        self.edge_types = torch.tensor([9.1975e-01, 4.7786e-02, 6.0592e-03, 1.2765e-04, 2.6281e-02])
 
-        self.n_nodes = torch.tensor([0, 0, 3.5760e-06, 2.7893e-05, 6.9374e-05, 1.6020e-04,
-                                     2.8036e-04, 4.3484e-04, 7.3022e-04, 1.1722e-03, 1.7830e-03, 2.8129e-03,
-                                     4.0981e-03, 5.5421e-03, 7.9645e-03, 1.0824e-02, 1.4459e-02, 1.8818e-02,
-                                     2.3961e-02, 2.9558e-02, 3.6324e-02, 4.1931e-02, 4.8105e-02, 5.2316e-02,
-                                     5.6601e-02, 5.7483e-02, 5.6685e-02, 5.2317e-02, 5.2107e-02, 4.9651e-02,
-                                     4.8100e-02, 4.4363e-02, 4.0704e-02, 3.5719e-02, 3.1685e-02, 2.6821e-02,
-                                     2.2542e-02, 1.8591e-02, 1.6114e-02, 1.3399e-02, 1.1543e-02, 9.6116e-03,
-                                     8.4744e-03, 6.9532e-03, 6.2001e-03, 4.9921e-03, 4.4378e-03, 3.5803e-03,
-                                     3.3078e-03, 2.7085e-03, 2.6784e-03, 2.2050e-03, 2.0533e-03, 1.5598e-03,
-                                     1.5177e-03, 9.8626e-04, 8.6396e-04, 5.6429e-04, 5.0422e-04, 2.9323e-04,
-                                     2.2243e-04, 9.8697e-05, 9.9413e-05, 6.0077e-05, 6.9374e-05, 3.0754e-05,
-                                     3.5045e-05, 1.6450e-05, 2.1456e-05, 1.2874e-05, 1.2158e-05, 5.7216e-06,
-                                     7.1520e-06, 2.8608e-06, 2.8608e-06, 7.1520e-07, 2.8608e-06, 1.4304e-06,
-                                     7.1520e-07, 0.0000e+00, 0.0000e+00, 0.0000e+00, 7.1520e-07, 0.0000e+00,
-                                     1.4304e-06, 7.1520e-07, 7.1520e-07, 0.0000e+00, 1.4304e-06])
+        self.n_nodes = torch.tensor([0.0000, 0.0000, 0.0005, 0.0015, 0.0060, 0.0045, 0.0055, 0.0090, 0.0110,
+                                     0.0160, 0.0235, 0.0225, 0.0240, 0.0245, 0.0275, 0.0245, 0.0345, 0.0380,
+                                     0.0315, 0.0450, 0.0440, 0.0509, 0.0539, 0.0430, 0.0375, 0.0380, 0.0350,
+                                     0.0380, 0.0360, 0.0300, 0.0315, 0.0265, 0.0245, 0.0245, 0.0160, 0.0195,
+                                     0.0145, 0.0105, 0.0060, 0.0085, 0.0105, 0.0060, 0.0080, 0.0070, 0.0030,
+                                     0.0055, 0.0040, 0.0005, 0.0010, 0.0020, 0.0020, 0.0030, 0.0010, 0.0010,
+                                     0.0030, 0.0010, 0.0000, 0.0000, 0.0000, 0.0005, 0.0005, 0.0005, 0.0005,
+                                     0.0010, 0.0000, 0.0000, 0.0000, 0.0010, 0.0000, 0.0000, 0.0000, 0.0000,
+                                     0.0000, 0.0000, 0.0005])
 
         self.complete_infos(n_nodes=self.n_nodes, node_types=self.node_types)
         self.valency_distribution = torch.zeros(self.max_n_nodes * 3 - 2)
-        self.valency_distribution[0: 7] = torch.tensor([0.0000, 0.1105, 0.2645, 0.3599, 0.2552, 0.0046, 0.0053])
+        self.valency_distribution[0:7] = torch.tensor(
+            [2.5437e-04, 1.5531e-01, 2.9161e-01, 3.1800e-01, 2.2482e-01, 6.0836e-03, 3.9215e-03]
+        )
 
         self.complete_infos(n_nodes=self.n_nodes, node_types=self.node_types)
 
         if recompute_statistics:
-            self.n_nodes = datamodule.node_counts(max_nodes_possible=1000)
+            self.n_nodes = datamodule.node_counts()
             print("Distribution of number of nodes", self.n_nodes)
             np.savetxt('n_counts.txt', self.n_nodes.numpy())
-            self.node_types = datamodule.node_types()                                     # There are no node types
+            self.node_types = datamodule.node_types()  # There are no node types
             print("Distribution of node types", self.node_types)
             np.savetxt('atom_types.txt', self.node_types.numpy())
 
@@ -235,7 +227,7 @@ class DrugSpaceXInfos(AbstractDatasetInfos):
             print("Distribution of edge types", self.edge_types)
             np.savetxt('edge_types.txt', self.edge_types.numpy())
 
-            valencies = datamodule.valency_count(max_n_nodes=1000)
+            valencies = datamodule.valency_count(300)
             print("Distribution of the valencies", valencies)
             np.savetxt('valencies.txt', valencies.numpy())
             self.valency_distribution = valencies
